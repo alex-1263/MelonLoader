@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using MelonLoader.Bootstrap.RuntimeHandlers.Il2Cpp;
 using MelonLoader.Bootstrap.Utils;
@@ -12,7 +13,7 @@ namespace MelonLoader.Bootstrap;
 /// and Dobby-hook the il2cpp_init export itself (module-to-module calls through a
 /// PE export always go through the patched function body).
 /// </summary>
-internal static class WineIl2CppHook
+internal static partial class WineIl2CppHook
 {
     private const uint LdrDllNotificationReasonLoaded = 1;
 
