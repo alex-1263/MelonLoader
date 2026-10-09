@@ -65,7 +65,10 @@ internal static class Il2CppHandler
     internal static nint InitDetour(nint a)
     {
         if (il2cpp == null! && PendingGameAssemblyBase != nint.Zero)
+        {
+            Core.Logger.Msg("[wine-hook] il2cpp_init detour entered, lazy-initialising");
             Initialize(PendingGameAssemblyBase);
+        }
 
         if (il2cppInitDone)
             return CallIl2CppInit(a);

@@ -50,7 +50,7 @@ internal static unsafe partial class WineIl2CppHook
             return;
         }
 
-        MelonDebug.Log("Wine il2cpp hook installed (LdrDllNotification)");
+        Core.Logger.Msg("Wine il2cpp hook installed (LdrDllNotification)");
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -73,7 +73,9 @@ internal static unsafe partial class WineIl2CppHook
 
         int length = Marshal.ReadInt16(nameStruct);
         var buffer = Marshal.ReadIntPtr(nameStruct, 8);
-        if (length != 34 || buffer == nint.Zero) // "GameAssembly.dll" = 16 chars = 34 bytes incl. NUL
+        // "GameAssembly.dll" = 16 chars; Length normally excludes the NUL (=32),
+        // but tolerate a value that includes it (=34).
+        if ((length != 32 && length != 34) || buffer == nint.Zero)
             return;
 
         // Case-insensitive compare against L"GameAssembly.dll" without allocating.
@@ -95,7 +97,7 @@ internal static unsafe partial class WineIl2CppHook
         if ((c = Marshal.ReadInt16(buffer, 26)) != 'd' && c != 'D') return;
         if ((c = Marshal.ReadInt16(buffer, 28)) != 'l' && c != 'L') return;
         if ((c = Marshal.ReadInt16(buffer, 30)) != 'l' && c != 'L') return;
-        if (Marshal.ReadInt16(buffer, 32) != 0) return;
+        if (length == 34 && Marshal.ReadInt16(buffer, 32) != 0) return;
 
         var dllBase = Marshal.ReadIntPtr(data + 24);
         if (dllBase == nint.Zero)
