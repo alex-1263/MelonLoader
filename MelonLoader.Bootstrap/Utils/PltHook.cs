@@ -49,11 +49,11 @@ internal static partial class PltHook
         // itself. Only the il2cpp path is handled; the CloseHandle hook merely
         // protects console handles that never exist under Wine.
 #if WINDOWS
+        // Wine: keep the stock plthook sequence untouched (it also LoadLibrary's
+        // UnityPlayer, which the game depends on), and additionally arm the
+        // GameAssembly loader-notification hook.
         if (Utils.WineUtils.IsWine)
-        {
             WineIl2CppHook.Install();
-            return;
-        }
 #endif
 
         if (!FindUnityPlayerLibrary()
