@@ -5,6 +5,8 @@ using MelonLoader.Bootstrap.Utils;
 
 namespace MelonLoader.Bootstrap;
 
+#if WINDOWS
+
 /// <summary>
 /// Wine/Proton workaround: wine's loader binds well-known system imports through
 /// internal fast paths, so neither the patched IAT entry inside UnityPlayer.dll nor
@@ -13,13 +15,9 @@ namespace MelonLoader.Bootstrap;
 /// and Dobby-hook the il2cpp_init export itself (module-to-module calls through a
 /// PE export always go through the patched function body).
 /// </summary>
-internal static partial class WineIl2CppHook
+internal static unsafe partial class WineIl2CppHook
 {
     private const uint LdrDllNotificationReasonLoaded = 1;
-
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    private delegate void LdrDllNotificationFn(uint reason, nint data, nint context);
-    private static readonly LdrDllNotificationFn NotificationDelegate = DllNotificationCallback;
 
     [LibraryImport("ntdll.dll")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
@@ -33,7 +31,7 @@ internal static partial class WineIl2CppHook
             return;
         _installed = true;
 
-        var callback = Marshal.GetFunctionPointerForDelegate(NotificationDelegate);
+        var callback = (nint)(delegate* unmanaged[Stdcall]<uint, nint, nint, void>)&DllNotificationCallback;
         if (LdrRegisterDllNotification(0, callback, nint.Zero, out _) != 0)
         {
             Core.Logger.Error("Failed to register LdrDllNotification for Wine il2cpp hook");
@@ -53,7 +51,7 @@ internal static partial class WineIl2CppHook
         MelonDebug.Log("Wine il2cpp hook installed (LdrDllNotification)");
     }
 
-    [UnmanagedCallersOnly]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static void DllNotificationCallback(uint reason, nint data, nint context)
     {
         try
@@ -120,3 +118,4 @@ internal static partial class WineIl2CppHook
         Core.Logger.Msg("Dobby hooked il2cpp_init on GameAssembly (Wine path)");
     }
 }
+#endif
