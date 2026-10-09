@@ -78,24 +78,24 @@ internal static unsafe partial class WineIl2CppHook
 
         // Case-insensitive compare against L"GameAssembly.dll" without allocating.
         // (length 34 includes the terminating NUL, which we verify as well)
-        ushort c;
-        if ((c = Marshal.ReadUInt16(buffer)) != 'G' && c != 'g') return;
-        if ((c = Marshal.ReadUInt16(buffer, 2)) != 'a' && c != 'A') return;
-        if ((c = Marshal.ReadUInt16(buffer, 4)) != 'm' && c != 'M') return;
-        if ((c = Marshal.ReadUInt16(buffer, 6)) != 'e' && c != 'E') return;
-        if ((c = Marshal.ReadUInt16(buffer, 8)) != 'A' && c != 'a') return;
-        if ((c = Marshal.ReadUInt16(buffer, 10)) != 's' && c != 'S') return;
-        if ((c = Marshal.ReadUInt16(buffer, 12)) != 's' && c != 's') return;
-        if ((c = Marshal.ReadUInt16(buffer, 14)) != 'e' && c != 'E') return;
-        if ((c = Marshal.ReadUInt16(buffer, 16)) != 'm' && c != 'M') return;
-        if ((c = Marshal.ReadUInt16(buffer, 18)) != 'b' && c != 'B') return;
-        if ((c = Marshal.ReadUInt16(buffer, 20)) != 'l' && c != 'L') return;
-        if ((c = Marshal.ReadUInt16(buffer, 22)) != 'y' && c != 'Y') return;
-        if (Marshal.ReadUInt16(buffer, 24) != '.') return;
-        if ((c = Marshal.ReadUInt16(buffer, 26)) != 'd' && c != 'D') return;
-        if ((c = Marshal.ReadUInt16(buffer, 28)) != 'l' && c != 'L') return;
-        if ((c = Marshal.ReadUInt16(buffer, 30)) != 'l' && c != 'L') return;
-        if (Marshal.ReadUInt16(buffer, 32) != 0) return;
+        short c;
+        if ((c = Marshal.ReadInt16(buffer)) != 'G' && c != 'g') return;
+        if ((c = Marshal.ReadInt16(buffer, 2)) != 'a' && c != 'A') return;
+        if ((c = Marshal.ReadInt16(buffer, 4)) != 'm' && c != 'M') return;
+        if ((c = Marshal.ReadInt16(buffer, 6)) != 'e' && c != 'E') return;
+        if ((c = Marshal.ReadInt16(buffer, 8)) != 'A' && c != 'a') return;
+        if ((c = Marshal.ReadInt16(buffer, 10)) != 's' && c != 'S') return;
+        if ((c = Marshal.ReadInt16(buffer, 12)) != 's' && c != 's') return;
+        if ((c = Marshal.ReadInt16(buffer, 14)) != 'e' && c != 'E') return;
+        if ((c = Marshal.ReadInt16(buffer, 16)) != 'm' && c != 'M') return;
+        if ((c = Marshal.ReadInt16(buffer, 18)) != 'b' && c != 'B') return;
+        if ((c = Marshal.ReadInt16(buffer, 20)) != 'l' && c != 'L') return;
+        if ((c = Marshal.ReadInt16(buffer, 22)) != 'y' && c != 'Y') return;
+        if (Marshal.ReadInt16(buffer, 24) != '.') return;
+        if ((c = Marshal.ReadInt16(buffer, 26)) != 'd' && c != 'D') return;
+        if ((c = Marshal.ReadInt16(buffer, 28)) != 'l' && c != 'L') return;
+        if ((c = Marshal.ReadInt16(buffer, 30)) != 'l' && c != 'L') return;
+        if (Marshal.ReadInt16(buffer, 32) != 0) return;
 
         var dllBase = Marshal.ReadIntPtr(data + 24);
         if (dllBase == nint.Zero)

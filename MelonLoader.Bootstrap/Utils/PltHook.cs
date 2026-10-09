@@ -48,11 +48,13 @@ internal static partial class PltHook
         // for GameAssembly.dll to be mapped and Dobby-hooks the il2cpp_init export
         // itself. Only the il2cpp path is handled; the CloseHandle hook merely
         // protects console handles that never exist under Wine.
+#if WINDOWS
         if (Utils.WineUtils.IsWine)
         {
             WineIl2CppHook.Install();
             return;
         }
+#endif
 
         if (!FindUnityPlayerLibrary()
             || !LoadUnityPlayerLibrary())
