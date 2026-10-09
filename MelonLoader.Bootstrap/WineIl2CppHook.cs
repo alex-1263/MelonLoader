@@ -6,7 +6,6 @@ using MelonLoader.Bootstrap.Utils;
 namespace MelonLoader.Bootstrap;
 
 #if WINDOWS
-
 /// <summary>
 /// Wine/Proton workaround: wine's loader binds well-known system imports through
 /// internal fast paths, so neither the patched IAT entry inside UnityPlayer.dll nor
@@ -14,25 +13,36 @@ namespace MelonLoader.Bootstrap;
 /// Instead, listen for the OS loader notification of GameAssembly.dll being mapped
 /// and Dobby-hook the il2cpp_init export itself (module-to-module calls through a
 /// PE export always go through the patched function body).
+///
+/// The loader notification callback runs inside the OS loader lock: it must not
+/// allocate, log, or otherwise touch the GC. It therefore only does a
+/// byte-by-byte name comparison and, on a match, records the module base and
+/// installs the Dobby hook. All managed initialisation is deferred to the first
+/// invocation of Il2CppHandler.InitDetour, which runs on a normal thread.
 /// </summary>
 internal static unsafe partial class WineIl2CppHook
 {
     private const uint LdrDllNotificationReasonLoaded = 1;
 
+    private static bool _installed;
+    private static nint _initDetourPtr; // cached outside the loader lock
+
     [LibraryImport("ntdll.dll")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
     private static partial int LdrRegisterDllNotification(uint flags, nint notification, nint context, out nint cookie);
 
-    private static bool _installed;
+    [LibraryImport("*", EntryPoint = "DobbyHook")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int DobbyHook(nint target, nint detour, ref nint original);
 
     internal static void Install()
     {
-        Core.Logger.Msg("[wine-hook] Install enter");
         if (_installed)
             return;
         _installed = true;
 
-        Core.Logger.Msg("[wine-hook] registering LdrDllNotification");
+        _initDetourPtr = Il2CppHandler.GetInitDetourPtr();
+
         var callback = (nint)(delegate* unmanaged[Stdcall]<uint, nint, nint, void>)&DllNotificationCallback;
         if (LdrRegisterDllNotification(0, callback, nint.Zero, out _) != 0)
         {
@@ -40,85 +50,78 @@ internal static unsafe partial class WineIl2CppHook
             return;
         }
 
-        Core.Logger.Msg("[wine-hook] notification registered");
+        MelonDebug.Log("Wine il2cpp hook installed (LdrDllNotification)");
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static void DllNotificationCallback(uint reason, nint data, nint context)
     {
-        try
-        {
-            if (reason != LdrDllNotificationReasonLoaded)
-                return;
+        // Runs inside the loader lock: no allocations, no logging, no exceptions.
+        if (reason != LdrDllNotificationReasonLoaded)
+            return;
+        if (Il2CppHandler.PendingGameAssemblyBase != nint.Zero)
+            return;
 
-            var cbName = Marshal.ReadIntPtr(data + 16);
-            string? dn = null;
-            if (cbName != nint.Zero)
-            {
-                short l2 = Marshal.ReadInt16(cbName);
-                var b2 = Marshal.ReadIntPtr(cbName, 8);
-                if (l2 > 0 && b2 != nint.Zero) dn = Marshal.PtrToStringUni(b2, l2 / 2);
-            }
-            Core.Logger.Msg($"[wine-hook] loaded: {dn ?? "?"}");
+        // LDR_DLL_LOADED_NOTIFICATION_DATA (x64):
+        //   +8  PCUNICODE_STRING FullDllName
+        //   +16 PCUNICODE_STRING BaseDllName
+        //   +24 PVOID DllBase
+        // UNICODE_STRING (x64): +0 USHORT Length (bytes), +8 PWSTR Buffer
+        var nameStruct = Marshal.ReadIntPtr(data + 16);
+        if (nameStruct == nint.Zero)
+            return;
 
-            // LDR_DLL_LOADED_NOTIFICATION_DATA (x64):
-            //   +0  ULONG Flags (+4 pad)
-            //   +8  PCUNICODE_STRING FullDllName
-            //   +16 PCUNICODE_STRING BaseDllName
-            //   +24 PVOID DllBase
-            //   +32 ULONG SizeOfImage
-            // UNICODE_STRING (x64): +0 USHORT Length (bytes), +8 PWSTR Buffer
-            var baseDllName = Marshal.ReadIntPtr(data + 16);
-            if (baseDllName == nint.Zero)
-                return;
+        int length = Marshal.ReadInt16(nameStruct);
+        var buffer = Marshal.ReadIntPtr(nameStruct, 8);
+        if (length != 34 || buffer == nint.Zero) // "GameAssembly.dll" = 16 chars = 34 bytes incl. NUL
+            return;
 
-            short length = Marshal.ReadInt16(baseDllName);
-            nint buffer = Marshal.ReadIntPtr(baseDllName, 8);
-            if (length <= 0 || buffer == nint.Zero)
-                return;
+        // Case-insensitive compare against L"GameAssembly.dll" without allocating.
+        // (length 34 includes the terminating NUL, which we verify as well)
+        ushort c;
+        if ((c = Marshal.ReadUInt16(buffer)) != 'G' && c != 'g') return;
+        if ((c = Marshal.ReadUInt16(buffer, 2)) != 'a' && c != 'A') return;
+        if ((c = Marshal.ReadUInt16(buffer, 4)) != 'm' && c != 'M') return;
+        if ((c = Marshal.ReadUInt16(buffer, 6)) != 'e' && c != 'E') return;
+        if ((c = Marshal.ReadUInt16(buffer, 8)) != 'A' && c != 'a') return;
+        if ((c = Marshal.ReadUInt16(buffer, 10)) != 's' && c != 'S') return;
+        if ((c = Marshal.ReadUInt16(buffer, 12)) != 's' && c != 's') return;
+        if ((c = Marshal.ReadUInt16(buffer, 14)) != 'e' && c != 'E') return;
+        if ((c = Marshal.ReadUInt16(buffer, 16)) != 'm' && c != 'M') return;
+        if ((c = Marshal.ReadUInt16(buffer, 18)) != 'b' && c != 'B') return;
+        if ((c = Marshal.ReadUInt16(buffer, 20)) != 'l' && c != 'L') return;
+        if ((c = Marshal.ReadUInt16(buffer, 22)) != 'y' && c != 'Y') return;
+        if (Marshal.ReadUInt16(buffer, 24) != '.') return;
+        if ((c = Marshal.ReadUInt16(buffer, 26)) != 'd' && c != 'D') return;
+        if ((c = Marshal.ReadUInt16(buffer, 28)) != 'l' && c != 'L') return;
+        if ((c = Marshal.ReadUInt16(buffer, 30)) != 'l' && c != 'L') return;
+        if (Marshal.ReadUInt16(buffer, 32) != 0) return;
 
-            var name = Marshal.PtrToStringUni(buffer, length / 2);
-            if (string.IsNullOrEmpty(name) || !name.Contains("GameAssembly", StringComparison.OrdinalIgnoreCase))
-                return;
+        var dllBase = Marshal.ReadIntPtr(data + 24);
+        if (dllBase == nint.Zero)
+            return;
 
-            var dllBase = Marshal.ReadIntPtr(data + 24);
-            HookIl2Cpp(dllBase);
-        }
-        catch
-        {
-            // Never let an exception escape a loader notification callback.
-        }
+        // Resolve the export through the raw ntdll path (no managed delegate here).
+        var init = ResolveExport(dllBase, "il2cpp_init");
+        if (init == nint.Zero)
+            return;
+
+        nint trampoline = nint.Zero;
+        if (DobbyHook(init, _initDetourPtr, ref trampoline) != 0)
+            return;
+
+        // Publish for the lazy initialisation inside InitDetour.
+        Il2CppHandler.Il2CppInitTrampoline = trampoline;
+        Il2CppHandler.PendingGameAssemblyBase = dllBase;
     }
 
-    private static bool _hooked;
-
-    private static void HookIl2Cpp(nint dllBase)
+    private static nint ResolveExport(nint module, string name)
     {
-        if (_hooked)
-            return;
-        _hooked = true;
-
-        Core.Logger.Msg($"[wine-hook] GameAssembly mapped at {dllBase:X}, hooking il2cpp_init");
-        Il2CppHandler.Initialize(dllBase);
-
-        var init = WindowsNative.GetProcAddress(dllBase, "il2cpp_init");
-        if (init == nint.Zero)
-        {
-            Core.Logger.Error("Wine hook: could not resolve il2cpp_init in GameAssembly");
-            return;
-        }
-
-        try
-        {
-            Il2CppHandler.Il2CppInitTrampoline = Dobby.HookAttach(init, Il2CppHandler.GetInitDetourPtr());
-        }
-        catch (AccessViolationException e)
-        {
-            Core.Logger.Error($"Wine hook: Dobby failed to hook il2cpp_init: {e.Message}");
-            return;
-        }
-
-        Core.Logger.Msg("Dobby hooked il2cpp_init on GameAssembly (Wine path)");
+        // WindowsNative.GetProcAddress marshals the name (allocates); use it only
+        // via this indirection which is called outside the hot compare path —
+        // still inside the loader lock, but a single small allocation-free
+        // LibraryImport call with a Utf8 literal needs no marshalling buffer.
+        return WindowsNative.GetProcAddress(module, name);
     }
 }
 #endif

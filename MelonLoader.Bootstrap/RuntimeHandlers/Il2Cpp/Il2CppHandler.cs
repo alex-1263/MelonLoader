@@ -55,8 +55,18 @@ internal static class Il2CppHandler
         il2cpp = il2cppLib;
     }
 
+    /// <summary>
+    /// Wine path: GameAssembly base recorded by the loader notification callback;
+    /// used to lazily run Initialize inside InitDetour (safe thread context)
+    /// instead of inside the OS loader lock.
+    /// </summary>
+    internal static nint PendingGameAssemblyBase;
+
     internal static nint InitDetour(nint a)
     {
+        if (il2cpp == null! && PendingGameAssemblyBase != nint.Zero)
+            Initialize(PendingGameAssemblyBase);
+
         if (il2cppInitDone)
             return CallIl2CppInit(a);
 
