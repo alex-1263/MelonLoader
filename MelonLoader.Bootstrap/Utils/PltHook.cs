@@ -40,22 +40,17 @@ internal static partial class PltHook
     private static nint PlayerModuleHandle;
     private const string UnityPlayerLibName = "UnityPlayer";
 
-    /// <summary>
-    /// Trampoline to the original kernel32.GetProcAddress while it is inline-hooked
-    /// via Dobby on Wine (see InstallWineInlineHooks).
-    /// </summary>
-    internal static nint GetProcAddressTrampoline;
-
     internal static void InstallHooks(List<(string functionName, nint hookFunctionPtr)> hooks)
     {
-        // Wine's PE loader resolves well-known system DLL imports through internal
-        // fast paths that bypass the patched IAT entry inside UnityPlayer.dll, so the
-        // plthook-based GetProcAddress detour never fires. Fall back to a Dobby
-        // inline hook on kernel32.GetProcAddress itself, which intercepts every
-        // call path regardless of how the import was resolved.
-        if (WineUtils.IsWine)
+        // Wine's loader bypasses patched IAT entries (and even inline hooks on
+        // kernel32.GetProcAddress) for well-known system imports, so the plthook
+        // detour never fires under Wine. Route through WineIl2CppHook, which waits
+        // for GameAssembly.dll to be mapped and Dobby-hooks the il2cpp_init export
+        // itself. Only the il2cpp path is handled; the CloseHandle hook merely
+        // protects console handles that never exist under Wine.
+        if (Utils.WineUtils.IsWine)
         {
-            InstallWineInlineHooks(hooks);
+            WineIl2CppHook.Install();
             return;
         }
 
@@ -87,43 +82,6 @@ internal static partial class PltHook
         PlthookClose(pltHook);
     }
 
-    private static void InstallWineInlineHooks(List<(string functionName, nint hookFunctionPtr)> hooks)
-    {
-        foreach (var (functionName, hookFunctionPtr) in hooks)
-        {
-            // The CloseHandle hook only protects the MelonLoader console handles,
-            // which are never created on Wine (console output stays on the parent
-            // terminal), so only GetProcAddress needs an inline replacement.
-            if (functionName != "GetProcAddress")
-                continue;
-
-            var kernel32 = WindowsNative.LoadLibrary("kernel32.dll");
-            if (kernel32 == nint.Zero)
-            {
-                Core.Logger.Error("Failed to load kernel32.dll for Wine inline hook");
-                return;
-            }
-
-            var target = WindowsNative.GetProcAddress(kernel32, "GetProcAddress");
-            if (target == nint.Zero)
-            {
-                Core.Logger.Error("Failed to resolve kernel32.GetProcAddress for Wine inline hook");
-                return;
-            }
-
-            try
-            {
-                GetProcAddressTrampoline = Dobby.HookAttach(target, hookFunctionPtr);
-            }
-            catch (AccessViolationException e)
-            {
-                Core.Logger.Error($"Dobby failed to inline hook GetProcAddress: {e.Message}");
-                return;
-            }
-
-            MelonDebug.Log($"Dobby inline hooked {functionName} successfully");
-        }
-    }
 
     private static bool LoadUnityPlayerLibrary()
     {

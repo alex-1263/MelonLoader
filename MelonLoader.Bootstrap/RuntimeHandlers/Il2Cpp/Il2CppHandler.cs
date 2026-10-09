@@ -14,6 +14,27 @@ internal static class Il2CppHandler
     private static bool il2cppInitDone;
     private static bool invokeStarted;
 
+    /// <summary>
+    /// Dobby trampoline for the original il2cpp_init while it is inline-hooked by
+    /// WineIl2CppHook (Wine path). Zero on native Windows, where il2cpp.Init points
+    /// at the untouched export.
+    /// </summary>
+    internal static nint Il2CppInitTrampoline;
+    private static Il2CppLib.InitFn? _trampolineInit;
+
+    internal static nint GetInitDetourPtr()
+        => Marshal.GetFunctionPointerForDelegate(Il2CPPInitDetourFn);
+
+    private static nint CallIl2CppInit(nint a)
+    {
+        if (Il2CppInitTrampoline != nint.Zero)
+        {
+            _trampolineInit ??= Marshal.GetDelegateForFunctionPointer<Il2CppLib.InitFn>(Il2CppInitTrampoline);
+            return _trampolineInit(a);
+        }
+        return il2cpp.Init(a);
+    }
+
     private static readonly Il2CppLib.InitFn Il2CPPInitDetourFn = InitDetour;
     private static readonly Il2CppLib.RuntimeInvokeFn InvokeDetourFn = InvokeDetour;
     internal static readonly Dictionary<string, (Action<nint> InitMethod, IntPtr detourPtr)> SymbolRedirects = new()
@@ -37,12 +58,12 @@ internal static class Il2CppHandler
     internal static nint InitDetour(nint a)
     {
         if (il2cppInitDone)
-            return il2cpp.Init(a);
+            return CallIl2CppInit(a);
 
         ConsoleHandler.ResetHandles();
         MelonDebug.Log("In init detour");
 
-        var domain = il2cpp.Init(a);
+        var domain = CallIl2CppInit(a);
 
         DotnetHandler.Initialize();
         il2cppInitDone = true;
