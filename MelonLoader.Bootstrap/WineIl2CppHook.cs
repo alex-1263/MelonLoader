@@ -27,10 +27,12 @@ internal static unsafe partial class WineIl2CppHook
 
     internal static void Install()
     {
+        Core.Logger.Msg("[wine-hook] Install enter");
         if (_installed)
             return;
         _installed = true;
 
+        Core.Logger.Msg("[wine-hook] registering LdrDllNotification");
         var callback = (nint)(delegate* unmanaged[Stdcall]<uint, nint, nint, void>)&DllNotificationCallback;
         if (LdrRegisterDllNotification(0, callback, nint.Zero, out _) != 0)
         {
@@ -48,7 +50,7 @@ internal static unsafe partial class WineIl2CppHook
             break;
         }
 
-        MelonDebug.Log("Wine il2cpp hook installed (LdrDllNotification)");
+        Core.Logger.Msg("[wine-hook] notification registered, scanning modules");
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -96,6 +98,7 @@ internal static unsafe partial class WineIl2CppHook
             return;
         _hooked = true;
 
+        Core.Logger.Msg($"[wine-hook] GameAssembly mapped at {dllBase:X}, hooking il2cpp_init");
         Il2CppHandler.Initialize(dllBase);
 
         var init = WindowsNative.GetProcAddress(dllBase, "il2cpp_init");
