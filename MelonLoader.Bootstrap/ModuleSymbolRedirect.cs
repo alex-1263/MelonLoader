@@ -57,6 +57,11 @@ namespace MelonLoader.Bootstrap
                 return nint.Zero;
 
 #if WINDOWS
+            // While GetProcAddress is inline-hooked (Wine path), calling it
+            // directly would re-enter SymbolDetour; route through the Dobby
+            // trampoline instead.
+            if (PltHook.GetProcAddressTrampoline != nint.Zero)
+                return CallOriginalGetProcAddress(handle, symbolName);
             return GetProcAddress(handle, symbolName);
 #elif LINUX
             return dlsym(handle, symbolName);
@@ -131,6 +136,18 @@ namespace MelonLoader.Bootstrap
 #if WINDOWS
         [DllImport("kernel32")]
         private static extern nint GetProcAddress(nint handle, nint symbol);
+
+#if WINDOWS
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate nint GetProcAddressFn(nint handle, nint symbol);
+        private static GetProcAddressFn? _originalGetProcAddress;
+
+        private static nint CallOriginalGetProcAddress(nint handle, nint symbolName)
+        {
+            _originalGetProcAddress ??= Marshal.GetDelegateForFunctionPointer<GetProcAddressFn>(PltHook.GetProcAddressTrampoline);
+            return _originalGetProcAddress(handle, symbolName);
+        }
+#endif
 #elif LINUX
         [DllImport("libdl.so.2")]
         private static extern IntPtr dlsym(nint handle, nint symbol);
