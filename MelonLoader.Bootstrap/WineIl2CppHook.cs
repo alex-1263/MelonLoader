@@ -31,6 +31,10 @@ internal static unsafe partial class WineIl2CppHook
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
     private static partial int LdrRegisterDllNotification(uint flags, nint notification, nint context, out nint cookie);
 
+    [LibraryImport("kernel32.dll", EntryPoint = "OutputDebugStringA", StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial void DebugLog(string msg);
+
     [LibraryImport("*", EntryPoint = "DobbyHook")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int DobbyHook(nint target, nint detour, ref nint original);
@@ -70,6 +74,7 @@ internal static unsafe partial class WineIl2CppHook
         var nameStruct = Marshal.ReadIntPtr(data + 16);
         if (nameStruct == nint.Zero)
             return;
+        DebugLog(Marshal.PtrToStringUni(Marshal.ReadIntPtr(nameStruct, 8), Marshal.ReadInt16(nameStruct) / 2) ?? "?");
 
         int length = Marshal.ReadInt16(nameStruct);
         var buffer = Marshal.ReadIntPtr(nameStruct, 8);
@@ -104,9 +109,13 @@ internal static unsafe partial class WineIl2CppHook
             return;
 
         // Resolve the export through the raw ntdll path (no managed delegate here).
+        DebugLog("[wine-hook] GameAssembly matched");
         var init = ResolveExport(dllBase, "il2cpp_init");
         if (init == nint.Zero)
+        {
+            DebugLog("[wine-hook] il2cpp_init NOT FOUND");
             return;
+        }
 
         nint trampoline = nint.Zero;
         if (DobbyHook(init, _initDetourPtr, ref trampoline) != 0)
@@ -114,6 +123,7 @@ internal static unsafe partial class WineIl2CppHook
 
         // Publish for the lazy initialisation inside InitDetour.
         Il2CppHandler.Il2CppInitTrampoline = trampoline;
+        DebugLog($"[wine-hook] dobby hooked il2cpp_init trampoline={trampoline:X}");
         Il2CppHandler.PendingGameAssemblyBase = dllBase;
     }
 
