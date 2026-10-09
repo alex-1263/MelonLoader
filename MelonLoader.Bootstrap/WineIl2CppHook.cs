@@ -40,17 +40,7 @@ internal static unsafe partial class WineIl2CppHook
             return;
         }
 
-        // GameAssembly may already be mapped by the time we get here; catch that
-        // case by scanning the current process modules once.
-        foreach (var module in System.Diagnostics.Process.GetCurrentProcess().Modules)
-        {
-            if (module is not System.Diagnostics.ProcessModule pm || !pm.FileName.Contains("GameAssembly"))
-                continue;
-            HookIl2Cpp(pm.BaseAddress);
-            break;
-        }
-
-        Core.Logger.Msg("[wine-hook] notification registered, scanning modules");
+        Core.Logger.Msg("[wine-hook] notification registered");
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -60,6 +50,16 @@ internal static unsafe partial class WineIl2CppHook
         {
             if (reason != LdrDllNotificationReasonLoaded)
                 return;
+
+            var cbName = Marshal.ReadIntPtr(data + 16);
+            string? dn = null;
+            if (cbName != nint.Zero)
+            {
+                short l2 = Marshal.ReadInt16(cbName);
+                var b2 = Marshal.ReadIntPtr(cbName, 8);
+                if (l2 > 0 && b2 != nint.Zero) dn = Marshal.PtrToStringUni(b2, l2 / 2);
+            }
+            Core.Logger.Msg($"[wine-hook] loaded: {dn ?? "?"}");
 
             // LDR_DLL_LOADED_NOTIFICATION_DATA (x64):
             //   +0  ULONG Flags (+4 pad)
